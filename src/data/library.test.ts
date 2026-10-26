@@ -31,4 +31,15 @@ describe('scenario library', () => {
     expect(outcomes.some((o) => o.state.red === 'rescued' && o.state.grandma === 'rescued')).toBe(true);
     expect(outcomes.some((o) => o.state.red === 'safe with Grandma')).toBe(true);
   });
+
+  it('Red Riding Hood weather model reproduces the drafted tree', () => {
+    const cfg = examples.find((e) => e.id === 'red-hood-weather')!.config;
+    const byEnding = Object.fromEntries(computeOutcomes(simulate(cfg)).map((o) => [String(o.state.ending).split(':')[0], o.probability]));
+    const expected: Record<string, number> = {
+      P1: 0.3, P2: 0.21, P3: 0.12, P4: 0.084, P5: 0.063, P6: 0.0588,
+      P7: 0.05488, P8: 0.036879, P9: 0.027, P10: 0.024696, P11: 0.011525, P12: 0.00922,
+    };
+    expect(Object.keys(byEnding).sort()).toEqual(Object.keys(expected).sort());
+    for (const [k, p] of Object.entries(expected)) expect(byEnding[k]).toBeCloseTo(p, 5);
+  });
 });
