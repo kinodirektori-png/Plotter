@@ -32,6 +32,10 @@ export function Editor({ config, onChange }: Props) {
   ];
   return (
     <div className="flex h-full flex-col">
+      <div className="border-b border-slate-200 px-3 py-2">
+        <h2 className="text-sm font-semibold text-slate-700">Build your scenario</h2>
+        <p className="text-xs text-slate-500">Edit variables, events and choices below. The graph and outcomes update as you type.</p>
+      </div>
       <Tabs tabs={tabs} value={tab} onChange={setTab} />
       <div className="flex-1 space-y-2 overflow-y-auto p-3">
         {tab === 'variables' && <VariablesTab config={config} onChange={onChange} />}

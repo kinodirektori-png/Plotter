@@ -4,6 +4,10 @@ Model a situation as world variables, actors, random events and decisions, and s
 
 Everything runs in the browser. There is no backend, no account and no network traffic; scenarios are saved to `localStorage` and can be exported/imported as JSON.
 
+## Scenarios
+
+Use **New** to start a blank scenario of your own, then build it in the left-hand editor: variables, actors, events with probabilities, and decisions with choices. The graph and outcomes update as you type. The **Examples** menu opens ready-made tales: Little Red Riding Hood, The Three Little Pigs, Hansel and Gretel, Cinderella, and a career scenario. They are defined in `src/data/fairyTales.ts` and are a good template for your own.
+
 ## Run it
 
 ```bash

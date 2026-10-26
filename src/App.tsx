@@ -1,10 +1,10 @@
-import { AlertTriangle, Download, FileText, RotateCcw, Upload, Waypoints } from 'lucide-react';
+import { AlertTriangle, Download, FileText, FilePlus2, Upload, Waypoints } from 'lucide-react';
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { Dossier, buildDossierMarkdown } from './components/Dossier';
 import { Editor } from './components/Editor';
 import { GraphView } from './components/GraphView';
 import { Button, Select } from './components/ui';
-import { sampleScenario } from './data/sampleScenario';
+import { blankScenario, examples, matchesExample } from './data/library';
 import { bestPath, computeOutcomes } from './engine/analysis';
 import { parseConfig, parseConfigJson } from './engine/schema';
 import { simulate } from './engine/simulate';
@@ -23,7 +23,7 @@ function loadStored(): SimulationConfig {
   } catch {
     // storage unavailable (private mode etc.): fall through to the sample
   }
-  return sampleScenario;
+  return examples[0].config;
 }
 
 function download(name: string, text: string, type: string) {
@@ -42,7 +42,9 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [graphPick, setGraphPick] = useState(0); // bumps when a node is clicked in the graph
   const [visibleCap, setVisibleCap] = useState(300);
-  const [confirmReset, setConfirmReset] = useState(false);
+  // A scenario waiting to replace the current one once the user confirms.
+  const [pending, setPending] = useState<{ label: string; config: SimulationConfig } | null>(null);
+  const [editorKey, setEditorKey] = useState(0); // remounts the editor so it opens on the right tab
   const [importError, setImportError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const deferred = useDeferredValue(config);
@@ -59,7 +61,13 @@ export default function App() {
   // holds an invalid draft, keep showing the last good result.
   const validation = useMemo(() => parseConfig(deferred), [deferred]);
   const [goodConfig, setGoodConfig] = useState(config);
-  if (validation.ok && validation.config !== goodConfig) setGoodConfig(validation.config);
+  // Only react when validation produces something new, so a scenario opened
+  // directly (below) isn't overwritten by the still-deferred old one.
+  const [seenValidation, setSeenValidation] = useState(validation);
+  if (validation !== seenValidation) {
+    setSeenValidation(validation);
+    if (validation.ok) setGoodConfig(validation.config);
+  }
   const sim = useMemo(() => ({ result: simulate(goodConfig), config: goodConfig }), [goodConfig]);
 
   const outcomes = useMemo(() => (sim ? computeOutcomes(sim.result) : []), [sim]);
@@ -83,6 +91,16 @@ export default function App() {
     }
     return { highlight: nodes, highlightEdges: edges };
   }, [sim, selected]);
+
+  const applyScenario = (next: SimulationConfig) => {
+    setConfig(next);
+    setGoodConfig(next); // simulate right away so the graph remounts on the new scenario
+    setSelectedId(null);
+    setPending(null);
+    setEditorKey((k) => k + 1);
+  };
+  // Unchanged examples are safe to swap out; anything you edited asks first.
+  const openScenario = (label: string, next: SimulationConfig) => (matchesExample(config) ? applyScenario(next) : setPending({ label, config: next }));
 
   const onImport = async (file: File) => {
     if (file.size > MAX_IMPORT_BYTES) {
@@ -131,6 +149,27 @@ export default function App() {
               e.target.value = '';
             }}
           />
+          <Select
+            aria-label="Open an example or start a new scenario"
+            value=""
+            onChange={(e) => {
+              const v = e.target.value;
+              const next = v === 'new' ? { label: 'a new blank scenario', config: blankScenario() } : examples.find((x) => x.id === v);
+              if (next) openScenario(next.label, next.config);
+            }}
+          >
+            <option value="" disabled>
+              Examples…
+            </option>
+            {examples.map((x) => (
+              <option key={x.id} value={x.id}>
+                {x.label}
+              </option>
+            ))}
+          </Select>
+          <Button variant="primary" onClick={() => openScenario('a new blank scenario', blankScenario())} title="Start your own scenario from scratch">
+            <FilePlus2 size={14} /> New
+          </Button>
           <Button onClick={() => fileRef.current?.click()} title="Import scenario JSON">
             <Upload size={14} /> Import
           </Button>
@@ -144,21 +183,20 @@ export default function App() {
           >
             <FileText size={14} /> Dossier
           </Button>
-          <Button
-            variant={confirmReset ? 'danger' : 'ghost'}
-            title="Load the sample scenario (replaces the current one)"
-            onBlur={() => setConfirmReset(false)}
-            onClick={() => {
-              if (!confirmReset) return setConfirmReset(true);
-              setConfig(sampleScenario);
-              setSelectedId(null);
-              setConfirmReset(false);
-            }}
-          >
-            <RotateCcw size={14} /> {confirmReset && 'Replace with sample?'}
-          </Button>
+
         </div>
       </header>
+      {pending && (
+        <div className="flex flex-wrap items-center gap-2 border-b border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-900">
+          <span className="flex-1">Open {pending.label}? This replaces your current scenario. Use Export first if you want to keep it.</span>
+          <Button variant="primary" className="!py-0.5 text-xs" onClick={() => applyScenario(pending.config)}>
+            Replace
+          </Button>
+          <Button className="!py-0.5 text-xs" onClick={() => setPending(null)}>
+            Cancel
+          </Button>
+        </div>
+      )}
       {importError && (
         <div className="flex items-start gap-2 border-b border-rose-200 bg-rose-50 px-3 py-1.5 text-xs whitespace-pre-wrap text-rose-700">
           <span className="flex-1">Import failed: {importError}</span>
@@ -169,11 +207,11 @@ export default function App() {
       )}
       <main className="flex min-h-0 flex-1 flex-col lg:flex-row">
         <aside className="h-[45vh] shrink-0 border-b border-slate-200 bg-slate-50 lg:h-auto lg:w-[380px] lg:border-r lg:border-b-0">
-          <Editor config={config} onChange={setConfig} />
+          <Editor key={editorKey} config={config} onChange={setConfig} />
         </aside>
         <section className="relative min-h-[50vh] flex-1">
           {sim && (
-            <GraphView result={sim.result} minP={minP} selectedId={selected} highlight={highlight} highlightEdges={highlightEdges}
+            <GraphView key={editorKey} result={sim.result} minP={minP} selectedId={selected} highlight={highlight} highlightEdges={highlightEdges}
               onSelect={(id) => {
                 setSelectedId(id);
                 if (id) setGraphPick((n) => n + 1);
