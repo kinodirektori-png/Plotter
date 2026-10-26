@@ -1,5 +1,6 @@
 import type { SimulationConfig } from '../types/simulation';
 import { cinderella, hanselAndGretel, redRidingHood, threeLittlePigs } from './fairyTales';
+import { redHoodWeather } from './redHoodWeather';
 import { sampleScenario } from './sampleScenario';
 
 export interface LibraryEntry {
@@ -10,6 +11,7 @@ export interface LibraryEntry {
 
 export const examples: LibraryEntry[] = [
   { id: 'red-riding-hood', label: 'Little Red Riding Hood', config: redRidingHood },
+  { id: 'red-hood-weather', label: 'Red Riding Hood: weather and nerve', config: redHoodWeather },
   { id: 'three-little-pigs', label: 'The Three Little Pigs', config: threeLittlePigs },
   { id: 'hansel-and-gretel', label: 'Hansel and Gretel', config: hanselAndGretel },
   { id: 'cinderella', label: 'Cinderella', config: cinderella },
