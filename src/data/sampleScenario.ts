@@ -1,6 +1,7 @@
 import type { SimulationConfig } from '../types/simulation';
 
 export const sampleScenario: SimulationConfig = {
+  schemaVersion: 2,
   title: 'Career crossroads',
   maxDepth: 6,
   pruneThreshold: 0.005,
@@ -18,13 +19,14 @@ export const sampleScenario: SimulationConfig = {
   ],
   actors: [{ id: 'partner', name: 'Partner', statusAttributes: { together: true } }],
   initialState: {},
-  events: [
+  externalEvents: [
     {
       id: 'lose_job',
       title: 'Lose job',
       description: 'The company restructures and the role disappears.',
       probability: 0.25,
-      preconditions: [{ variableId: 'employed', operator: '==', value: true }],
+      severity: 'critical',
+      conditions: [{ variableId: 'employed', operator: '==', value: true }],
       mutations: [
         { variableId: 'employed', action: 'set', value: false },
         { variableId: 'stress', action: 'increment', value: 2 },
@@ -36,7 +38,8 @@ export const sampleScenario: SimulationConfig = {
       title: 'Find a new job',
       description: 'After some searching, an offer lands.',
       probability: 0.45,
-      preconditions: [{ variableId: 'employed', operator: '==', value: false }],
+      severity: 'low',
+      conditions: [{ variableId: 'employed', operator: '==', value: false }],
       mutations: [
         { variableId: 'employed', action: 'set', value: true },
         { variableId: 'stress', action: 'decrement', value: 1 },
@@ -48,14 +51,15 @@ export const sampleScenario: SimulationConfig = {
       title: 'Relocation offer arrives',
       description: 'A recruiter offers a role in another city.',
       probability: 0.3,
-      preconditions: [{ variableId: 'city', operator: '==', value: 'Hometown' }],
+      severity: 'low',
+      conditions: [{ variableId: 'city', operator: '==', value: 'Hometown' }],
       mutations: [{ variableId: 'offer', action: 'set', value: true }],
     },
     {
       id: 'burn_savings',
       title: 'Burn a month of savings',
       probability: 0.35,
-      preconditions: [
+      conditions: [
         { variableId: 'employed', operator: '==', value: false },
         { variableId: 'savings', operator: '>', value: 0 },
       ],
@@ -69,7 +73,8 @@ export const sampleScenario: SimulationConfig = {
       id: 'promotion',
       title: 'Get promoted',
       probability: 0.15,
-      preconditions: [{ variableId: 'employed', operator: '==', value: true }],
+      severity: 'low',
+      conditions: [{ variableId: 'employed', operator: '==', value: true }],
       mutations: [{ variableId: 'savings', action: 'increment', value: 2 }],
     },
     {
@@ -77,19 +82,20 @@ export const sampleScenario: SimulationConfig = {
       title: 'Partner leaves',
       description: 'The strain becomes too much for the relationship.',
       probability: 0.2,
-      preconditions: [
+      severity: 'high',
+      conditions: [
         { variableId: 'stress', operator: '>=', value: 4 },
         { variableId: 'partner.together', operator: '==', value: true },
       ],
       mutations: [{ variableId: 'partner.together', action: 'set', value: false }],
     },
   ],
-  decisions: [
+  contingencies: [
     {
       id: 'relocate',
-      title: 'Take the relocation?',
-      preconditions: [{ variableId: 'offer', operator: '==', value: true }],
-      choices: [
+      title: 'Relocation offer on the table',
+      sensors: [{ variableId: 'offer', operator: '==', value: true }],
+      actions: [
         {
           id: 'move',
           label: 'Move to Berlin',
@@ -104,6 +110,39 @@ export const sampleScenario: SimulationConfig = {
           id: 'stay',
           label: 'Stay put',
           mutations: [{ variableId: 'offer', action: 'set', value: false }],
+        },
+      ],
+    },
+    {
+      id: 'runway',
+      title: 'Runway alarm',
+      description: 'Pre-agreed with yourself: under two months of savings, take any paying contract.',
+      sensors: [
+        { variableId: 'employed', operator: '==', value: false },
+        { variableId: 'savings', operator: '<', value: 2 },
+      ],
+      actions: [
+        {
+          id: 'contract',
+          label: 'Take a stopgap contract',
+          mutations: [
+            { variableId: 'employed', action: 'set', value: true },
+            { variableId: 'stress', action: 'increment', value: 1 },
+          ],
+        },
+      ],
+    },
+    {
+      id: 'counselling',
+      title: 'Relationship firewall',
+      description: 'Armed once stress runs high: if the partner is about to walk, book couples counselling first.',
+      sensors: [{ variableId: 'stress', operator: '>=', value: 4 }],
+      intercepts: ['partner_leaves'],
+      actions: [
+        {
+          id: 'counsel',
+          label: 'Couples counselling',
+          mutations: [{ variableId: 'stress', action: 'decrement', value: 2 }],
         },
       ],
     },

@@ -1,4 +1,4 @@
-import type { DecisionChoice, Operator, Precondition, SimEvent, StateMutation, Value } from '../types/simulation';
+import type { Contingency, ContingencyAction, ExternalEvent, Operator, Precondition, StateMutation, Value } from '../types/simulation';
 
 // Small helpers that keep hand-written example scenarios readable.
 
@@ -9,17 +9,30 @@ export const set = (variableId: string, value: Value): StateMutation => ({ varia
 export const inc = (variableId: string, value = 1): StateMutation => ({ variableId, action: 'increment', value });
 export const dec = (variableId: string, value = 1): StateMutation => ({ variableId, action: 'decrement', value });
 
+/** An external shock: uncontrollable, with a probability. */
 export function event(
   id: string,
   title: string,
   probability: number,
-  preconditions: Precondition[],
+  conditions: Precondition[],
   mutations: StateMutation[],
-  extra: Partial<Pick<SimEvent, 'description' | 'repeatable'>> = {},
-): SimEvent {
-  return { id, title, probability, preconditions, mutations, ...extra };
+  extra: Partial<Pick<ExternalEvent, 'description' | 'repeatable' | 'severity' | 'window'>> = {},
+): ExternalEvent {
+  return { id, title, probability, conditions, mutations, ...extra };
 }
 
-export function choice(id: string, label: string, mutations: StateMutation[], extra: Partial<Pick<DecisionChoice, 'description' | 'preconditions'>> = {}): DecisionChoice {
+/** One "Then" of a contingency. */
+export function action(id: string, label: string, mutations: StateMutation[], extra: Partial<Pick<ContingencyAction, 'description' | 'requires'>> = {}): ContingencyAction {
   return { id, label, mutations, ...extra };
+}
+
+/** An "If sensors -> Then actions" rule. */
+export function contingency(
+  id: string,
+  title: string,
+  sensors: Precondition[],
+  actions: ContingencyAction[],
+  extra: Partial<Pick<Contingency, 'description' | 'intercepts'>> = {},
+): Contingency {
+  return { id, title, sensors, actions, ...extra };
 }

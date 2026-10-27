@@ -1,21 +1,26 @@
-import { AlertTriangle, Download, FileText, FilePlus2, Upload, Waypoints } from 'lucide-react';
+import { AlertTriangle, Crosshair, Download, FileText, FilePlus2, Upload } from 'lucide-react';
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { Dossier, buildDossierMarkdown } from './components/Dossier';
 import { Editor } from './components/Editor';
+import { DoctrineMap } from './components/DoctrineMap';
 import { GraphView } from './components/GraphView';
+import { LayerToolbar, type CanvasView } from './components/LayerToolbar';
 import { Button, Select } from './components/ui';
 import { blankScenario, examples, matchesExample } from './data/library';
 import { bestPath, computeOutcomes } from './engine/analysis';
+import type { Layer } from './engine/doctrine';
 import { parseConfig, parseConfigJson } from './engine/schema';
 import { simulate } from './engine/simulate';
 import type { SimulationConfig } from './types/simulation';
 
-const STORAGE_KEY = 'outcome-sim:scenario:v1';
+// v1 holds pre-redesign scenarios; parseConfig migrates them on load.
+const STORAGE_KEY = 'outcome-sim:scenario:v2';
+const LEGACY_STORAGE_KEY = 'outcome-sim:scenario:v1';
 const MAX_IMPORT_BYTES = 2_000_000;
 
 function loadStored(): SimulationConfig {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(LEGACY_STORAGE_KEY);
     if (raw) {
       const r = parseConfigJson(raw);
       if (r.ok) return r.config;
@@ -46,6 +51,9 @@ export default function App() {
   const [pending, setPending] = useState<{ label: string; config: SimulationConfig } | null>(null);
   const [editorKey, setEditorKey] = useState(0); // remounts the editor so it opens on the right tab
   const [importError, setImportError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [view, setView] = useState<CanvasView>('doctrine');
+  const [layer, setLayer] = useState<Layer>('all');
   const fileRef = useRef<HTMLInputElement>(null);
   const deferred = useDeferredValue(config);
 
@@ -112,28 +120,30 @@ export default function App() {
       setConfig(r.config);
       setSelectedId(null);
       setImportError(null);
+      setNotice(r.migrated ? 'Imported an older scenario: its events are now external shocks and its decisions are contingencies. Set shock severities to get a meaningful coverage score.' : null);
     } else setImportError(r.errors.join('\n'));
   };
 
   const stats = sim?.result.stats;
   return (
     <div className="flex h-full flex-col">
-      <header className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-3 py-2">
-        <Waypoints className="text-indigo-600" size={20} />
-        <h1 className="mr-2 text-base font-semibold">{config.title || 'Outcome Simulator'}</h1>
+      <header className="flex flex-wrap items-center gap-2 border-b border-slate-800 bg-slate-900 px-3 py-2">
+        <Crosshair className="text-cyan-400" size={20} />
+        <span className="text-[10px] font-bold tracking-[0.25em] text-cyan-400 uppercase">War room</span>
+        <h1 className="mr-2 text-base font-semibold text-slate-100">{config.title || 'Untitled operation'}</h1>
         {stats && (
-          <span className="text-xs text-slate-500">
-            {stats.nodes} states · {stats.edges} transitions · {outcomes.length} outcomes
+          <span className="text-xs text-slate-400">
+            {config.externalEvents.length} shocks · {config.contingencies.length} contingencies · {stats.nodes} states · {outcomes.length} outcomes
             {stats.mergedArrivals > 0 && ` · ${stats.mergedArrivals} merged`} · {stats.ms} ms
           </span>
         )}
         {stats?.truncated && (
-          <span className="flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800">
+          <span className="flex items-center gap-1 rounded bg-amber-900/60 px-1.5 py-0.5 text-xs text-amber-200">
             <AlertTriangle size={12} /> Node limit hit; least likely states dropped
           </span>
         )}
         {!validation.ok && (
-          <span className="flex items-center gap-1 rounded bg-rose-100 px-1.5 py-0.5 text-xs text-rose-700" title={validation.errors.join('\n')}>
+          <span className="flex items-center gap-1 rounded bg-rose-900/60 px-1.5 py-0.5 text-xs text-rose-300" title={validation.errors.join('\n')}>
             <AlertTriangle size={12} /> {validation.errors[0]}
           </span>
         )}
@@ -187,7 +197,7 @@ export default function App() {
         </div>
       </header>
       {pending && (
-        <div className="flex flex-wrap items-center gap-2 border-b border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-900">
+        <div className="flex flex-wrap items-center gap-2 border-b border-amber-800 bg-amber-950/40 px-3 py-1.5 text-xs text-amber-100">
           <span className="flex-1">Open {pending.label}? This replaces your current scenario. Use Export first if you want to keep it.</span>
           <Button variant="primary" className="!py-0.5 text-xs" onClick={() => applyScenario(pending.config)}>
             Replace
@@ -197,8 +207,16 @@ export default function App() {
           </Button>
         </div>
       )}
+      {notice && (
+        <div className="flex items-start gap-2 border-b border-cyan-900 bg-cyan-950/40 px-3 py-1.5 text-xs text-cyan-200">
+          <span className="flex-1">{notice}</span>
+          <button type="button" onClick={() => setNotice(null)} className="font-medium">
+            Dismiss
+          </button>
+        </div>
+      )}
       {importError && (
-        <div className="flex items-start gap-2 border-b border-rose-200 bg-rose-50 px-3 py-1.5 text-xs whitespace-pre-wrap text-rose-700">
+        <div className="flex items-start gap-2 border-b border-rose-800 bg-rose-950/40 px-3 py-1.5 text-xs whitespace-pre-wrap text-rose-300">
           <span className="flex-1">Import failed: {importError}</span>
           <button type="button" onClick={() => setImportError(null)} className="font-medium">
             Dismiss
@@ -206,19 +224,24 @@ export default function App() {
         </div>
       )}
       <main className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        <aside className="h-[45vh] shrink-0 border-b border-slate-200 bg-slate-50 lg:h-auto lg:w-[380px] lg:border-r lg:border-b-0">
+        <aside className="h-[45vh] shrink-0 border-b border-slate-800 bg-slate-950 lg:h-auto lg:w-[380px] lg:border-r lg:border-b-0">
           <Editor key={editorKey} config={config} onChange={setConfig} />
         </aside>
         <section className="relative min-h-[50vh] flex-1">
-          {sim && (
-            <GraphView key={editorKey} result={sim.result} minP={minP} selectedId={selected} highlight={highlight} highlightEdges={highlightEdges}
-              onSelect={(id) => {
-                setSelectedId(id);
-                if (id) setGraphPick((n) => n + 1);
-              }}
-            />
-          )}
-          <div className="absolute right-3 top-3 flex items-center gap-1 rounded bg-white/90 px-2 py-1 text-xs shadow">
+          <div className="flex h-full flex-col">
+            <LayerToolbar view={view} onView={setView} layer={layer} onLayer={setLayer} />
+            <div className="relative min-h-0 flex-1">
+              {view === 'doctrine' && <DoctrineMap key={`${editorKey}-${layer}`} config={sim.config} layer={layer} />}
+              {view === 'timeline' && (
+                <GraphView key={editorKey} config={sim.config} layer={layer} result={sim.result} minP={minP} selectedId={selected} highlight={highlight} highlightEdges={highlightEdges}
+                  onSelect={(id) => {
+                    setSelectedId(id);
+                    if (id) setGraphPick((n) => n + 1);
+                  }}
+                />
+              )}
+              {view === 'timeline' && (
+          <div className="absolute right-3 top-3 flex items-center gap-1 rounded bg-slate-900/90 px-2 py-1 text-xs text-slate-300 shadow">
             Show
             <Select value={visibleCap} onChange={(e) => setVisibleCap(Number(e.target.value))} className="!py-0 text-xs">
               <option value={100}>top 100</option>
@@ -228,9 +251,24 @@ export default function App() {
             </Select>
             states
           </div>
+              )}
+            </div>
+          </div>
         </section>
-        <aside className="h-[60vh] shrink-0 border-t border-slate-200 bg-slate-50 lg:h-auto lg:w-[380px] lg:border-t-0 lg:border-l">
-          {sim && <Dossier config={sim.config} result={sim.result} outcomes={outcomes} selectedId={selected} graphPick={graphPick} onSelect={setSelectedId} />}
+        <aside className="h-[60vh] shrink-0 border-t border-slate-800 bg-slate-950 lg:h-auto lg:w-[380px] lg:border-t-0 lg:border-l">
+          {sim && (
+            <Dossier
+              config={sim.config}
+              result={sim.result}
+              outcomes={outcomes}
+              selectedId={selected}
+              graphPick={graphPick}
+              onSelect={(id) => {
+                setSelectedId(id);
+                setView('timeline'); // a picked outcome or blind spot lives on the simulated timeline
+              }}
+            />
+          )}
         </aside>
       </main>
     </div>

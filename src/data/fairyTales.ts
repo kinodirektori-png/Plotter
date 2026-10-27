@@ -1,11 +1,12 @@
-import type { SimulationConfig } from '../types/simulation';
-import { choice, event, inc, is, set, when } from './builders';
+import type { ExternalEvent, SimulationConfig } from '../types/simulation';
+import { action, event, inc, is, set, when } from './builders';
 
 // Example scenarios built on well-known fairy tales. Each one has a couple of
 // decisions for the protagonist and enough random events that the classic
 // ending is only one of several.
 
 const fairyTaleDefaults = {
+  schemaVersion: 2,
   pruneThreshold: 0.003,
   mode: 'exhaustive',
   runs: 5000,
@@ -15,6 +16,10 @@ const fairyTaleDefaults = {
   includeQuietSteps: false,
   initialState: {},
 } as const;
+
+// Lucky breaks for the protagonist are still outside their control, but they
+// are low severity, so they never count as risks or blind spots.
+const luckyBreaks = (ids: string[]) => (e: ExternalEvent): ExternalEvent => (ids.includes(e.id) ? { ...e, severity: 'low' } : e);
 
 export const redRidingHood: SimulationConfig = {
   ...fairyTaleDefaults,
@@ -33,27 +38,27 @@ export const redRidingHood: SimulationConfig = {
     { id: 'wolf', name: 'The Wolf', statusAttributes: { alive: true, in_bed: false } },
     { id: 'hunter', name: 'The Huntsman', statusAttributes: { nearby: false } },
   ],
-  decisions: [
+  contingencies: [
     {
       id: 'warning',
       title: "Mother's warning",
-      preconditions: [is('route', 'undecided')],
-      choices: [
-        choice('path', 'Stay on the path', [set('route', 'path')], { description: 'Just as Mother said. Safer, but slower.' }),
-        choice('woods', 'Cut through the woods', [set('route', 'woods')], { description: 'Quicker, and full of flowers.' }),
+      sensors: [is('route', 'undecided')],
+      actions: [
+        action('path', 'Stay on the path', [set('route', 'path')], { description: 'Just as Mother said. Safer, but slower.' }),
+        action('woods', 'Cut through the woods', [set('route', 'woods')], { description: 'Quicker, and full of flowers.' }),
       ],
     },
     {
       id: 'talk',
       title: 'The wolf asks where she is going',
-      preconditions: [is('wolf_met', true)],
-      choices: [
-        choice('tell', "Tell him about Grandma's house", [set('wolf_knows', true)], { description: 'He seems so friendly.' }),
-        choice('quiet', 'Say nothing and walk on', []),
+      sensors: [is('wolf_met', true)],
+      actions: [
+        action('tell', "Tell him about Grandma's house", [set('wolf_knows', true)], { description: 'He seems so friendly.' }),
+        action('quiet', 'Say nothing and walk on', []),
       ],
     },
   ],
-  events: [
+  externalEvents: [
     event('meet_wolf_path', 'Meets the wolf on the path', 0.3, [is('route', 'path'), is('wolf_met', false), is('red', 'walking')], [set('wolf_met', true)]),
     event('meet_wolf_woods', 'Meets the wolf among the trees', 0.7, [is('route', 'woods'), is('wolf_met', false), is('red', 'walking')], [set('wolf_met', true)]),
     event('pick_flowers', 'Stops to pick flowers', 0.35, [is('route', 'woods'), is('red', 'walking'), when('flowers', '<', 2)], [inc('flowers')], {
@@ -83,7 +88,7 @@ export const redRidingHood: SimulationConfig = {
     }),
     event('rescue_red', 'The huntsman cuts open the wolf (Grandma hid)', 0.7, [is('hunter.nearby', true), is('red', 'eaten'), is('grandma', 'hiding in the wardrobe')], [set('red', 'rescued'), set('wolf.alive', false)]),
     event('shoot_wolf', 'The huntsman shoots the wolf', 0.5, [is('hunter.nearby', true), is('wolf.in_bed', true), is('wolf.alive', true), is('red', 'fleeing')], [set('wolf.alive', false)]),
-  ],
+  ].map(luckyBreaks(['pick_flowers', 'grandma_hides', 'arrive', 'tea', 'flee', 'run_home', 'hunter_passes', 'rescue_both', 'rescue_red', 'shoot_wolf'])),
 };
 
 export const threeLittlePigs: SimulationConfig = {
@@ -97,28 +102,28 @@ export const threeLittlePigs: SimulationConfig = {
     { id: 'chimney', name: 'Chimney', type: 'string', initialValue: 'open' },
   ],
   actors: [{ id: 'wolf', name: 'Big Bad Wolf', statusAttributes: { at_door: false, on_roof: false, alive: true } }],
-  decisions: [
+  contingencies: [
     {
       id: 'build',
       title: 'What to build the house from?',
-      preconditions: [is('house', 'none')],
-      choices: [
-        choice('straw', 'Straw', [set('house', 'straw'), set('standing', true)], { description: 'Done by lunchtime.' }),
-        choice('sticks', 'Sticks', [set('house', 'sticks'), set('standing', true)], { description: 'A day of work.' }),
-        choice('bricks', 'Bricks', [set('house', 'bricks'), set('standing', true)], { description: 'A week of hard work.' }),
+      sensors: [is('house', 'none')],
+      actions: [
+        action('straw', 'Straw', [set('house', 'straw'), set('standing', true)], { description: 'Done by lunchtime.' }),
+        action('sticks', 'Sticks', [set('house', 'sticks'), set('standing', true)], { description: 'A day of work.' }),
+        action('bricks', 'Bricks', [set('house', 'bricks'), set('standing', true)], { description: 'A week of hard work.' }),
       ],
     },
     {
       id: 'roof',
       title: 'The wolf is on the roof',
-      preconditions: [is('wolf.on_roof', true)],
-      choices: [
-        choice('pot', 'Put a pot of boiling water under the chimney', [set('chimney', 'boiling pot')]),
-        choice('board', 'Nail a board over the chimney', [set('chimney', 'boarded')]),
+      sensors: [is('wolf.on_roof', true)],
+      actions: [
+        action('pot', 'Put a pot of boiling water under the chimney', [set('chimney', 'boiling pot')]),
+        action('board', 'Nail a board over the chimney', [set('chimney', 'boarded')]),
       ],
     },
   ],
-  events: [
+  externalEvents: [
     event('wolf_arrives', 'The wolf knocks: "Little pig, let me in!"', 0.5, [is('standing', true), is('wolf.at_door', false), is('pig', 'at home')], [set('wolf.at_door', true)]),
     event('blow_straw', 'He huffs and puffs: the straw flies away', 0.9, [is('wolf.at_door', true), is('house', 'straw'), is('standing', true)], [set('standing', false)]),
     event('blow_sticks', 'He huffs and puffs: the sticks collapse', 0.6, [is('wolf.at_door', true), is('house', 'sticks'), is('standing', true)], [set('standing', false)]),
@@ -134,7 +139,7 @@ export const threeLittlePigs: SimulationConfig = {
     }),
     event('board_holds', 'The board holds and the wolf gives up', 0.5, [is('wolf.on_roof', true), is('chimney', 'boarded')], [set('wolf.on_roof', false), set('pig', 'safe')]),
     event('board_breaks', 'The board snaps under the wolf', 0.3, [is('wolf.on_roof', true), is('chimney', 'boarded')], [set('wolf.on_roof', false), set('pig', 'eaten')]),
-  ],
+  ].map(luckyBreaks(['wolf_gives_up', 'reach_brother', 'into_pot', 'board_holds'])),
 };
 
 export const hanselAndGretel: SimulationConfig = {
@@ -151,28 +156,28 @@ export const hanselAndGretel: SimulationConfig = {
     { id: 'treasure', name: 'Brought home treasure', type: 'boolean', initialValue: false },
   ],
   actors: [{ id: 'witch', name: 'The Witch', statusAttributes: { alive: true } }],
-  decisions: [
+  contingencies: [
     {
       id: 'mark',
       title: 'Hansel overhears the plan to leave them',
-      preconditions: [is('trail', 'none')],
-      choices: [
-        choice('pebbles', 'Fill his pockets with white pebbles', [set('trail', 'pebbles')], { description: 'They shine in the moonlight.' }),
-        choice('crumbs', 'Save the breadcrumbs instead', [set('trail', 'breadcrumbs')], { description: 'The door is locked; bread is all he has.' }),
+      sensors: [is('trail', 'none')],
+      actions: [
+        action('pebbles', 'Fill his pockets with white pebbles', [set('trail', 'pebbles')], { description: 'They shine in the moonlight.' }),
+        action('crumbs', 'Save the breadcrumbs instead', [set('trail', 'breadcrumbs')], { description: 'The door is locked; bread is all he has.' }),
       ],
     },
     {
       id: 'trick',
       title: 'Locked in the witch’s house, Gretel thinks',
-      preconditions: [is('children', 'captured')],
-      choices: [
-        choice('oven', 'Trick the witch into the oven', [set('plan', 'oven')]),
-        choice('bone', 'Hold out a bone so Hansel seems too thin', [set('plan', 'bone')]),
-        choice('escape', 'Slip out at night', [set('plan', 'escape')]),
+      sensors: [is('children', 'captured')],
+      actions: [
+        action('oven', 'Trick the witch into the oven', [set('plan', 'oven')]),
+        action('bone', 'Hold out a bone so Hansel seems too thin', [set('plan', 'bone')]),
+        action('escape', 'Slip out at night', [set('plan', 'escape')]),
       ],
     },
   ],
-  events: [
+  externalEvents: [
     event('abandoned', 'Left deep in the forest', 0.9, [is('where', 'home'), when('trail', '!=', 'none'), is('children', 'together')], [set('where', 'forest')]),
     event('birds', 'Birds eat the breadcrumbs', 0.7, [is('trail', 'breadcrumbs'), is('trail_intact', true), is('where', 'forest')], [set('trail_intact', false)]),
     event('follow_trail', 'Follow the trail home by moonlight', 0.6, [is('trail_intact', true), is('where', 'forest')], [set('where', 'home'), set('children', 'home safe')]),
@@ -190,7 +195,7 @@ export const hanselAndGretel: SimulationConfig = {
     event('escape_caught', 'Caught at the window', 0.45, [is('plan', 'escape'), is('children', 'captured')], [set('children', 'eaten')]),
     event('home_with_treasure', "Carry the witch's jewels home", 0.8, [is('children', 'free'), is('witch.alive', false)], [set('treasure', true), set('children', 'home safe'), set('where', 'home')]),
     event('home', 'Find the way home', 0.6, [is('children', 'free'), is('witch.alive', true)], [set('children', 'home safe'), set('where', 'home')]),
-  ],
+  ].map(luckyBreaks(['follow_trail', 'woodcutter', 'oven_works', 'bone_helps', 'escape_works', 'home_with_treasure', 'home'])),
 };
 
 export const cinderella: SimulationConfig = {
@@ -205,27 +210,27 @@ export const cinderella: SimulationConfig = {
     { id: 'slipper_lost', name: 'Glass slipper left behind', type: 'boolean', initialValue: false },
   ],
   actors: [{ id: 'prince', name: 'The Prince', statusAttributes: { smitten: false, searching: false } }],
-  decisions: [
+  contingencies: [
     {
       id: 'ball',
       title: 'Go to the ball?',
-      preconditions: [is('godmother', true), is('cinderella', 'among the cinders')],
-      choices: [
-        choice('go', 'Go to the ball', [set('cinderella', 'at the ball')]),
-        choice('stay', 'Stay home', [set('cinderella', 'stayed home')], { description: 'It all seems too much.' }),
+      sensors: [is('godmother', true), is('cinderella', 'among the cinders')],
+      actions: [
+        action('go', 'Go to the ball', [set('cinderella', 'at the ball')]),
+        action('stay', 'Stay home', [set('cinderella', 'stayed home')], { description: 'It all seems too much.' }),
       ],
     },
     {
       id: 'twelve',
       title: 'Midnight! The spell is about to break',
-      preconditions: [is('midnight', true), is('cinderella', 'at the ball')],
-      choices: [
-        choice('run', 'Run down the palace stairs', [set('cinderella', 'running home')]),
-        choice('stay', 'Stay for one more dance', [set('cinderella', 'in rags at the ball')]),
+      sensors: [is('midnight', true), is('cinderella', 'at the ball')],
+      actions: [
+        action('run', 'Run down the palace stairs', [set('cinderella', 'running home')]),
+        action('stay', 'Stay for one more dance', [set('cinderella', 'in rags at the ball')]),
       ],
     },
   ],
-  events: [
+  externalEvents: [
     event('locked', 'The stepmother locks her in the attic', 0.2, [is('godmother', false), is('locked_in', false)], [set('locked_in', true), set('cinderella', 'locked in the attic')]),
     event('godmother', 'Her fairy godmother appears', 0.6, [is('godmother', false), is('locked_in', false)], [set('godmother', true)], {
       description: 'A pumpkin becomes a coach and rags become a gown.',
@@ -240,5 +245,5 @@ export const cinderella: SimulationConfig = {
     event('hidden', 'The stepsisters hide her when he calls', 0.3, [is('prince.searching', true), is('cinderella', 'home')], [set('cinderella', 'hidden away')]),
     event('fits', 'The slipper fits', 0.7, [is('prince.searching', true), is('cinderella', 'home')], [set('cinderella', 'married the prince')]),
     event('found_anyway', 'The prince hears her singing in the cellar', 0.35, [is('prince.searching', true), is('cinderella', 'hidden away')], [set('cinderella', 'married the prince')]),
-  ],
+  ].map(luckyBreaks(['godmother', 'dance', 'home', 'loved_anyway', 'search', 'fits', 'found_anyway'])),
 };

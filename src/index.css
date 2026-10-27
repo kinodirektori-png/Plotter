@@ -1,6 +1,58 @@
 @import "tailwindcss";
 
 html, body, #root { height: 100%; }
-body { @apply bg-slate-50 text-slate-800 antialiased; }
+html { color-scheme: dark; }
+body { @apply bg-slate-950 text-slate-200 antialiased; }
 
-.react-flow__edge-textbg { fill: #f8fafc; }
+/* ---------- War-room visual language ---------- */
+
+/* External shocks: hot, glowing, slightly organic cards. */
+.shock-card {
+  background: radial-gradient(120% 140% at 0% 0%, rgba(159, 18, 57, 0.45), rgba(15, 23, 42, 0.96) 60%);
+  box-shadow: 0 0 14px rgba(244, 63, 94, 0.35), inset 0 0 18px rgba(244, 63, 94, 0.08);
+}
+.shock-card.shock-amber {
+  background: radial-gradient(120% 140% at 0% 0%, rgba(180, 83, 9, 0.4), rgba(15, 23, 42, 0.96) 60%);
+  box-shadow: 0 0 12px rgba(251, 191, 36, 0.25);
+}
+.shock-card.shock-dim {
+  background: linear-gradient(135deg, rgba(120, 53, 15, 0.25), rgba(15, 23, 42, 0.96) 55%);
+  box-shadow: none;
+}
+.shock-critical { animation: shock-pulse 2.2s ease-in-out infinite; }
+@keyframes shock-pulse {
+  0%, 100% { box-shadow: 0 0 10px rgba(244, 63, 94, 0.35), inset 0 0 14px rgba(244, 63, 94, 0.08); }
+  50% { box-shadow: 0 0 24px rgba(244, 63, 94, 0.7), inset 0 0 22px rgba(244, 63, 94, 0.18); }
+}
+
+/* Contingencies: cold, structured, steel-blue tech blocks on a fine grid. */
+.tactical-card {
+  background-color: #0b1626;
+  background-image:
+    linear-gradient(rgba(56, 189, 248, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(56, 189, 248, 0.06) 1px, transparent 1px);
+  background-size: 10px 10px;
+  box-shadow: inset 3px 0 0 rgba(56, 189, 248, 0.8), 0 0 10px rgba(56, 189, 248, 0.12);
+}
+
+.sensor-pill { box-shadow: 0 0 12px rgba(34, 211, 238, 0.35); }
+
+.blind-spot { box-shadow: 0 0 0 1px rgba(244, 63, 94, 0.6), 0 0 18px rgba(244, 63, 94, 0.55); }
+
+/* Sensor-to-decision triggers: neon, dashed, pulsing (React Flow animates the dashes). */
+.react-flow__edge.edge-trigger .react-flow__edge-path {
+  filter: drop-shadow(0 0 3px rgba(34, 211, 238, 0.9));
+  animation: dashdraw 0.6s linear infinite, trigger-pulse 1.6s ease-in-out infinite;
+}
+@keyframes trigger-pulse {
+  0%, 100% { stroke-opacity: 1; }
+  50% { stroke-opacity: 0.45; }
+}
+.react-flow__edge.edge-intercept .react-flow__edge-path { filter: drop-shadow(0 0 2px rgba(56, 189, 248, 0.8)); }
+
+.react-flow__edge-textbg { fill: #020617; }
+.react-flow { --xy-background-color: #050b16; }
+
+@media (prefers-reduced-motion: reduce) {
+  .shock-critical, .react-flow__edge.edge-trigger .react-flow__edge-path { animation: none; }
+}

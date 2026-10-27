@@ -1,5 +1,5 @@
-import type { SimEdge, SimNode, SimResult, SimulationConfig, WorldState } from '../types/simulation';
-import { applyMutations, buildInitialState, checkAll, stateSignature } from './state';
+import type { Contingency, SimEdge, SimNode, SimResult, SimulationConfig, TickWindow, WorldState } from '../types/simulation';
+import { applyMutations, buildInitialState, checkAll, clockAt, isClockKey, stateSignature } from './state';
 
 export const DEFAULT_MAX_NODES = 4000;
 
@@ -12,56 +12,107 @@ interface Move {
   fired: string[];
 }
 
-/** Decisions that already happened are stored in `fired` as "<decisionId>:<choiceId>". */
-function decisionTaken(fired: string[], decisionId: string): boolean {
-  const prefix = `${decisionId}:`;
+/** Contingencies that already fired are stored in `fired` as "<contingencyId>:<actionId>". */
+function contingencyUsed(fired: string[], contingencyId: string): boolean {
+  const prefix = `${contingencyId}:`;
   return fired.some((f) => f.startsWith(prefix));
 }
 
-/**
- * Everything that can happen next from a state. An open decision always takes
- * the step (the protagonist must choose before the world moves on). Otherwise
- * every eligible event competes for the step, weighted by its probability.
- */
-export function getMoves(config: SimulationConfig, node: Pick<SimNode, 'state' | 'fired'>, sampling = false): { moves: Move[]; decisionId?: string } {
-  const { state, fired } = node;
-  const firedSet = new Set(fired);
+function inWindow(w: TickWindow | undefined, tick: number): boolean {
+  return (w?.from === undefined || tick >= w.from) && (w?.until === undefined || tick <= w.until);
+}
 
-  for (const d of config.decisions) {
-    if (decisionTaken(fired, d.id) || !checkAll(state, d.preconditions)) continue;
-    const valid = d.choices.filter((c) => checkAll(state, c.preconditions));
+/**
+ * Nothing can happen right now, but the clock may still change that: a shock
+ * is scheduled for a later tick, or a sensor watches the tick or the date.
+ */
+function waitingOnClock(config: SimulationConfig, state: WorldState, tick: number, firedSet: Set<string>, fired: string[]): boolean {
+  if (config.externalEvents.some((e) => e.probability > 0 && (e.repeatable || !firedSet.has(e.id)) && e.window?.from !== undefined && e.window.from > tick)) return true;
+  // A deadline rule only matters if everything else it watches already holds.
+  return config.contingencies.some(
+    (c) =>
+      !c.intercepts?.length &&
+      !contingencyUsed(fired, c.id) &&
+      c.sensors.some((s) => isClockKey(s.variableId)) &&
+      checkAll(state, c.sensors.filter((s) => !isClockKey(s.variableId))),
+  );
+}
+
+/**
+ * Everything that can happen next from a state, in war-room order:
+ *
+ * 1. Sensor sweep. If a proactive contingency's sensors are tripped, the
+ *    actor's pre-planned rule takes the tick before the world can move.
+ * 2. Shocks. Otherwise every eligible external event competes for the tick,
+ *    weighted by its probability. A shock that an armed contingency
+ *    intercepts still happens, but the contingency's action replaces its
+ *    effects.
+ * 3. If nothing is eligible yet but the clock can still change that, time passes.
+ */
+export function getMoves(
+  config: SimulationConfig,
+  node: Pick<SimNode, 'state' | 'fired' | 'depth'>,
+  sampling = false,
+): { moves: Move[]; contingencyId?: string } {
+  const { state, fired, depth } = node;
+  const clock = clockAt(config.timeline, depth);
+  const firedSet = new Set(fired);
+  const uniform = sampling || config.choicePolicy === 'uniform';
+  const validActions = (c: Contingency) => c.actions.filter((a) => checkAll(state, a.requires, clock));
+
+  for (const c of config.contingencies) {
+    if (c.intercepts?.length || contingencyUsed(fired, c.id) || !checkAll(state, c.sensors, clock)) continue;
+    const valid = validActions(c);
     if (!valid.length) continue;
-    const uniform = sampling || config.choicePolicy === 'uniform';
     return {
-      decisionId: d.id,
-      moves: valid.map((c) => ({
-        kind: 'choice',
-        refId: `${d.id}:${c.id}`,
-        label: `${d.title}: ${c.label}`,
+      contingencyId: c.id,
+      moves: valid.map((a) => ({
+        kind: 'contingency',
+        refId: `${c.id}:${a.id}`,
+        label: `${c.title} → ${a.label}`,
         p: uniform ? 1 / valid.length : 1,
-        state: applyMutations(state, c.mutations),
-        fired: [...fired, `${d.id}:${c.id}`],
+        state: applyMutations(state, a.mutations),
+        fired: [...fired, `${c.id}:${a.id}`],
       })),
     };
   }
 
-  const eligible = config.events.filter(
-    (e) => e.probability > 0 && (e.repeatable || !firedSet.has(e.id)) && checkAll(state, e.preconditions),
+  const eligible = config.externalEvents.filter(
+    (e) => e.probability > 0 && (e.repeatable || !firedSet.has(e.id)) && inWindow(e.window, depth) && checkAll(state, e.conditions, clock),
   );
-  if (!eligible.length) return { moves: [] };
+  if (!eligible.length) {
+    return waitingOnClock(config, state, depth, firedSet, fired)
+      ? { moves: [{ kind: 'quiet', refId: '__time', label: 'Time passes', p: 1, state, fired }] }
+      : { moves: [] };
+  }
 
   const total = eligible.reduce((s, e) => s + e.probability, 0);
   const quiet = config.includeQuietSteps && total < 1 ? 1 - total : 0;
   const norm = quiet > 0 ? 1 : total;
-  const moves: Move[] = eligible.map((e) => ({
-    kind: 'event',
-    refId: e.id,
-    label: e.title,
-    p: e.probability / norm,
-    state: applyMutations(state, e.mutations),
-    fired: e.repeatable ? fired : [...fired, e.id],
-  }));
-  if (quiet > 0) moves.push({ kind: 'quiet', refId: '__quiet', label: 'Nothing happens', p: quiet, state, fired });
+  const moves: Move[] = [];
+  for (const e of eligible) {
+    const p = e.probability / norm;
+    const firedAfter = e.repeatable ? fired : [...fired, e.id];
+    const interceptor = config.contingencies.find(
+      (c) => c.intercepts?.includes(e.id) && !contingencyUsed(fired, c.id) && checkAll(state, c.sensors, clock) && validActions(c).length > 0,
+    );
+    if (!interceptor) {
+      moves.push({ kind: 'shock', refId: e.id, label: e.title, p, state: applyMutations(state, e.mutations), fired: firedAfter });
+      continue;
+    }
+    const valid = validActions(interceptor);
+    for (const a of valid) {
+      moves.push({
+        kind: 'intercept',
+        refId: `${e.id}>${interceptor.id}:${a.id}`,
+        label: `${e.title} ⟂ ${interceptor.title} → ${a.label}`,
+        p: p * (uniform ? 1 / valid.length : 1),
+        state: applyMutations(state, a.mutations),
+        fired: [...firedAfter, `${interceptor.id}:${a.id}`],
+      });
+    }
+  }
+  if (quiet > 0) moves.push({ kind: 'quiet', refId: '__quiet', label: 'Quiet tick', p: quiet, state, fired });
   return { moves };
 }
 
@@ -107,13 +158,13 @@ export function simulateExhaustive(config: SimulationConfig): SimResult {
         node.terminalReason = 'maxDepth';
         continue;
       }
-      const { moves, decisionId } = getMoves(config, node);
+      const { moves, contingencyId } = getMoves(config, node);
       if (!moves.length) {
         node.terminal = true;
         node.terminalReason = 'noMoves';
         continue;
       }
-      node.pendingDecision = decisionId;
+      node.pendingContingency = contingencyId;
       for (const mv of moves) {
         const sig = stateSignature(mv.state, mv.fired);
         let child = next.get(sig);
@@ -184,7 +235,7 @@ export function mulberry32(seed: number): () => number {
 
 /**
  * Samples `runs` paths and folds them into the same depth-keyed DAG. Node and
- * edge probabilities are observed frequencies. Choices are sampled uniformly.
+ * edge probabilities are observed frequencies. Contingency actions are sampled uniformly.
  */
 export function simulateMonteCarlo(config: SimulationConfig): SimResult {
   const t0 = performance.now();
@@ -221,7 +272,7 @@ export function simulateMonteCarlo(config: SimulationConfig): SimResult {
         cur.terminalReason = 'noMoves';
         break;
       }
-      cur.pendingDecision = m.decisionId;
+      cur.pendingContingency = m.contingencyId;
       const total = m.moves.reduce((s, mv) => s + mv.p, 0);
       let x = rand() * total;
       let mv = m.moves[m.moves.length - 1];

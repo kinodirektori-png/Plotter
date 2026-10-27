@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { computeOutcomes } from '../engine/analysis';
+import { computeOutcomes, computeResilience } from '../engine/analysis';
 import { parseConfig } from '../engine/schema';
 import { simulate } from '../engine/simulate';
-import { stateKeys } from '../engine/state';
+import { sensorKeys } from '../engine/state';
 import { blankScenario, examples } from './library';
 
 describe('scenario library', () => {
@@ -10,10 +10,12 @@ describe('scenario library', () => {
     it(`${label} is valid, fits the node cap and conserves probability`, () => {
       expect(parseConfig(config).ok).toBe(true);
       // Every rule must point at a real variable, or it silently never fires.
-      const keys = new Set(stateKeys(config));
+      const keys = new Set(sensorKeys(config));
+      const shockIds = new Set(config.externalEvents.map((e) => e.id));
+      expect(config.contingencies.flatMap((c) => c.intercepts ?? []).filter((s) => !shockIds.has(s))).toEqual([]);
       const refs = [
-        ...config.events.flatMap((e) => [...e.preconditions, ...e.mutations]),
-        ...config.decisions.flatMap((d) => [...d.preconditions, ...d.choices.flatMap((c) => [...(c.preconditions ?? []), ...c.mutations])]),
+        ...config.externalEvents.flatMap((e) => [...e.conditions, ...e.mutations]),
+        ...config.contingencies.flatMap((c) => [...c.sensors, ...c.actions.flatMap((a) => [...(a.requires ?? []), ...a.mutations])]),
       ].map((r) => r.variableId);
       expect(refs.filter((r) => !keys.has(r))).toEqual([]);
 
@@ -24,6 +26,19 @@ describe('scenario library', () => {
       expect(computeOutcomes(r).length).toBeGreaterThan(0);
     });
   }
+
+  it('war-room examples exercise every contingency and leave a blind spot', () => {
+    for (const id of ['docks-raid', 'layoff-runway']) {
+      const cfg = examples.find((e) => e.id === id)!.config;
+      const res = computeResilience(cfg, simulate(cfg));
+      expect(res.dormant.map((c) => c.id)).toEqual([]);
+      expect(res.coverage).toBeGreaterThan(0);
+      expect(res.coverage).toBeLessThan(1);
+    }
+    const docks = examples.find((e) => e.id === 'docks-raid')!.config;
+    const res = computeResilience(docks, simulate(docks));
+    expect(res.blindSpots.map((b) => b.shock.id)).toContain('ambush');
+  });
 
   it('Red Riding Hood can end with the classic rescue', () => {
     const red = examples.find((e) => e.id === 'red-riding-hood')!.config;
