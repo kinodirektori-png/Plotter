@@ -1,18 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import { sampleScenario } from '../data/sampleScenario';
 import type { SimulationConfig } from '../types/simulation';
-import { computeOutcomes } from './analysis';
+import { computeOutcomes, computeResilience } from './analysis';
+import { buildDoctrine } from './doctrine';
 import { parseConfig, parseConfigJson } from './schema';
 import { simulate } from './simulate';
-import { applyMutations, checkPrecondition } from './state';
+import { applyMutations, checkPrecondition, clockAt } from './state';
 
 const base = (over: Partial<SimulationConfig>): SimulationConfig => ({
+  schemaVersion: 2,
   maxDepth: 5,
   pruneThreshold: 0,
   actors: [],
   initialState: {},
-  events: [],
-  decisions: [],
+  externalEvents: [],
+  contingencies: [],
   ...over,
 });
 
@@ -46,9 +48,9 @@ describe('state', () => {
 describe('exhaustive engine', () => {
   const ab = base({
     initialState: { a: false, b: false },
-    events: [
-      { id: 'A', title: 'A', probability: 0.5, preconditions: [], mutations: [{ variableId: 'a', action: 'set', value: true }] },
-      { id: 'B', title: 'B', probability: 0.5, preconditions: [], mutations: [{ variableId: 'b', action: 'set', value: true }] },
+    externalEvents: [
+      { id: 'A', title: 'A', probability: 0.5, conditions: [], mutations: [{ variableId: 'a', action: 'set', value: true }] },
+      { id: 'B', title: 'B', probability: 0.5, conditions: [], mutations: [{ variableId: 'b', action: 'set', value: true }] },
     ],
   });
 
@@ -63,7 +65,7 @@ describe('exhaustive engine', () => {
 
   it('conserves probability mass, with and without quiet steps and pruning', () => {
     expect(sumTerminals(ab)).toBeCloseTo(1);
-    const quiet = { ...ab, includeQuietSteps: true, events: ab.events.map((e) => ({ ...e, probability: 0.2 })) };
+    const quiet = { ...ab, includeQuietSteps: true, externalEvents: ab.externalEvents.map((e) => ({ ...e, probability: 0.2 })) };
     expect(sumTerminals(quiet)).toBeCloseTo(1);
     expect(sumTerminals({ ...sampleScenario, choicePolicy: 'uniform' })).toBeCloseTo(1);
     expect(sumTerminals({ ...sampleScenario, choicePolicy: 'uniform', pruneThreshold: 0.02 })).toBeCloseTo(1);
@@ -72,9 +74,9 @@ describe('exhaustive engine', () => {
   it('respects preconditions so order matters only where causality says so', () => {
     const cfg = base({
       initialState: { door: false, inside: false },
-      events: [
-        { id: 'open', title: 'Open', probability: 0.5, preconditions: [], mutations: [{ variableId: 'door', action: 'set', value: true }] },
-        { id: 'enter', title: 'Enter', probability: 0.5, preconditions: [{ variableId: 'door', operator: '==', value: true }], mutations: [{ variableId: 'inside', action: 'set', value: true }] },
+      externalEvents: [
+        { id: 'open', title: 'Open', probability: 0.5, conditions: [], mutations: [{ variableId: 'door', action: 'set', value: true }] },
+        { id: 'enter', title: 'Enter', probability: 0.5, conditions: [{ variableId: 'door', operator: '==', value: true }], mutations: [{ variableId: 'inside', action: 'set', value: true }] },
       ],
     });
     const r = simulate(cfg);
@@ -82,10 +84,10 @@ describe('exhaustive engine', () => {
     for (const e of r.edges.filter((e) => e.refId === 'enter')) expect(r.nodes[e.source].state.door).toBe(true);
   });
 
-  it('branches on decisions; conditional policy gives each branch full weight', () => {
+  it('branches on contingency actions; conditional policy gives each branch full weight', () => {
     const cfg = base({
       initialState: { x: 0 },
-      decisions: [{ id: 'd', title: 'D', preconditions: [], choices: [
+      contingencies: [{ id: 'd', title: 'D', sensors: [], actions: [
         { id: 'l', label: 'L', mutations: [{ variableId: 'x', action: 'set', value: 1 }] },
         { id: 'r', label: 'R', mutations: [{ variableId: 'x', action: 'set', value: 2 }] },
       ] }],
@@ -100,7 +102,7 @@ describe('exhaustive engine', () => {
     const cfg = base({
       maxDepth: 20,
       initialState: { n: 0 },
-      events: Array.from({ length: 6 }, (_, i) => ({ id: `e${i}`, title: `e${i}`, probability: 0.5, repeatable: true, preconditions: [], mutations: [{ variableId: 'n', action: 'increment' as const, value: i + 1 }] })),
+      externalEvents: Array.from({ length: 6 }, (_, i) => ({ id: `e${i}`, title: `e${i}`, probability: 0.5, repeatable: true, conditions: [], mutations: [{ variableId: 'n', action: 'increment' as const, value: i + 1 }] })),
       maxNodes: 100,
     });
     const r = simulate(cfg);
@@ -136,7 +138,102 @@ describe('schema', () => {
       expect(Object.getPrototypeOf(evil.config.initialState)).toBe(Object.prototype);
     }
     expect(({} as Record<string, unknown>).polluted).toBeUndefined();
-    const dup = { ...sampleScenario, events: [sampleScenario.events[0], sampleScenario.events[0]] };
+    const dup = { ...sampleScenario, externalEvents: [sampleScenario.externalEvents[0], sampleScenario.externalEvents[0]] };
     expect(parseConfig(dup).ok).toBe(false);
+  });
+});
+
+describe('war room engine', () => {
+  const drain = { id: 'drain', title: 'Drain', probability: 1, repeatable: true, conditions: [{ variableId: 'cash', operator: '>' as const, value: 0 }], mutations: [{ variableId: 'cash', action: 'decrement' as const, value: 1 }] };
+
+  it('trips sensors before the next shock can hit', () => {
+    const cfg = base({
+      maxDepth: 6,
+      initialState: { cash: 3, plan: 'A' },
+      externalEvents: [drain],
+      contingencies: [{ id: 'b', title: 'Plan B', sensors: [{ variableId: 'cash', operator: '<', value: 2 }], actions: [{ id: 'go', label: 'Sell car', mutations: [{ variableId: 'cash', action: 'increment', value: 5 }, { variableId: 'plan', action: 'set', value: 'B' }] }] }],
+    });
+    const r = simulate(cfg);
+    const fire = r.edges.find((e) => e.kind === 'contingency');
+    expect(fire).toBeDefined();
+    // It fires in the first state where cash < 2, not a shock later.
+    expect(r.nodes[fire!.source].state.cash).toBe(1);
+    expect(r.nodes[fire!.source].pendingContingency).toBe('b');
+  });
+
+  it('lets an armed contingency intercept a shock and cancel its effects', () => {
+    const cfg = base({
+      initialState: { armed: true, hurt: false, dodged: false },
+      externalEvents: [{ id: 'ambush', title: 'Ambush', probability: 1, conditions: [], mutations: [{ variableId: 'hurt', action: 'set', value: true }] }],
+      contingencies: [{ id: 'shield', title: 'Shield', sensors: [{ variableId: 'armed', operator: '==', value: true }], intercepts: ['ambush'], actions: [{ id: 'dodge', label: 'Dodge', mutations: [{ variableId: 'dodged', action: 'set', value: true }] }] }],
+    });
+    const r = simulate(cfg);
+    expect(r.edges.map((e) => e.kind)).toEqual(['intercept']);
+    const end = computeOutcomes(r)[0].state;
+    expect(end).toMatchObject({ hurt: false, dodged: true });
+    // Disarmed, the same shock hits unopposed.
+    const off = computeOutcomes(simulate({ ...cfg, initialState: { ...cfg.initialState, armed: false } }))[0].state;
+    expect(off).toMatchObject({ hurt: true, dodged: false });
+  });
+
+  it('waits for scheduled shocks and date sensors', () => {
+    const cfg = base({
+      maxDepth: 8,
+      timeline: { unit: 'week', start: '2026-10-03' },
+      initialState: { war: false, plan: 'A' },
+      externalEvents: [{ id: 'war', title: 'War starts', probability: 1, window: { from: 3 }, conditions: [], mutations: [{ variableId: 'war', action: 'set', value: true }] }],
+      contingencies: [{ id: 'dl', title: 'Deadline', sensors: [{ variableId: 'date', operator: '>=', value: '2026-10-31' }], actions: [{ id: 'go', label: 'Leave', mutations: [{ variableId: 'plan', action: 'set', value: 'left' }] }] }],
+    });
+    expect(clockAt(cfg.timeline, 4).date).toBe('2026-10-31');
+    const r = simulate(cfg);
+    const war = r.edges.find((e) => e.refId === 'war')!;
+    expect(r.nodes[war.source].depth).toBe(3);
+    const leave = r.edges.find((e) => e.kind === 'contingency')!;
+    expect(r.nodes[leave.source].depth).toBe(4);
+    expect(r.edges.filter((e) => e.kind === 'quiet').length).toBeGreaterThan(0);
+  });
+
+  it('scores coverage and finds blind spots', () => {
+    const cfg = base({
+      initialState: { armed: true, phase: 'go', out: 'none' },
+      externalEvents: [
+        { id: 'covered', title: 'Covered', probability: 0.5, severity: 'critical', conditions: [{ variableId: 'phase', operator: '==', value: 'go' }], mutations: [{ variableId: 'phase', action: 'set', value: 'end' }] },
+        { id: 'naked', title: 'Naked', probability: 0.5, severity: 'high', conditions: [{ variableId: 'phase', operator: '==', value: 'go' }], mutations: [{ variableId: 'phase', action: 'set', value: 'dead' }] },
+        { id: 'minor', title: 'Minor', probability: 0.1, severity: 'low', conditions: [{ variableId: 'phase', operator: '==', value: 'nothing' }], mutations: [] },
+      ],
+      contingencies: [{ id: 'c', title: 'C', sensors: [{ variableId: 'armed', operator: '==', value: true }], intercepts: ['covered'], actions: [{ id: 'a', label: 'A', mutations: [{ variableId: 'phase', action: 'set', value: 'safe' }] }] }],
+    });
+    const res = computeResilience(cfg, simulate(cfg));
+    expect(res.highRisk).toBe(2);
+    expect(res.coverage).toBe(0.5);
+    expect(res.blindSpots.map((b) => b.shock.id)).toEqual(['naked']);
+    expect(res.blindSpotMass).toBeCloseTo(0.5);
+    expect(res.dormant).toEqual([]);
+  });
+
+  it('draws sensor triggers and filters doctrine layers', () => {
+    const all = buildDoctrine(sampleScenario);
+    expect(all.edges.some((e) => e.kind === 'trigger' && e.source === 'sensor:savings' && e.target === 'cont:runway')).toBe(true);
+    expect(all.edges.some((e) => e.kind === 'intercept' && e.target === 'shock:partner_leaves')).toBe(true);
+    expect(all.edges.some((e) => e.kind === 'causal' && e.source === 'shock:burn_savings' && e.target === 'sensor:savings')).toBe(true);
+    expect(buildDoctrine(sampleScenario, 'shocks').nodes.every((n) => n.kind === 'shock')).toBe(true);
+    expect(buildDoctrine(sampleScenario, 'contingencies').nodes.some((n) => n.kind === 'shock')).toBe(false);
+  });
+});
+
+describe('legacy import', () => {
+  it('migrates v1 events and decisions', () => {
+    const v1 = {
+      maxDepth: 3, pruneThreshold: 0, actors: [], initialState: { x: 0 },
+      events: [{ id: 'e', title: 'E', probability: 0.5, preconditions: [], mutations: [] }],
+      decisions: [{ id: 'd', title: 'D', preconditions: [{ variableId: 'x', operator: '==', value: 0 }], choices: [{ id: 'c', label: 'C', preconditions: [], mutations: [] }] }],
+    };
+    const r = parseConfig(v1);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.migrated).toBe(true);
+    expect(r.config.externalEvents[0].conditions).toEqual([]);
+    expect(r.config.contingencies[0].sensors).toEqual(v1.decisions[0].preconditions);
+    expect(r.config.contingencies[0].actions[0]).toMatchObject({ id: 'c', requires: [] });
   });
 });

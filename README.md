@@ -1,12 +1,25 @@
 # Plotter
 
-Model a situation as world variables, actors, random events and decisions, and see every way it can play out: an interactive graph of states with probabilities, plus a story dossier of the likely outcomes.
+A tactical contingency planner, a war room for branching outcomes. Model what you cannot control (external shocks with probabilities) apart from what you can (pre-planned If-Then contingencies driven by sensors), then see every way the operation can play out, how much of your risk is covered, and where your blind spots are.
 
 Everything runs in the browser. There is no backend, no account and no network traffic; scenarios are saved to `localStorage` and can be exported/imported as JSON.
 
 ## Scenarios
 
-Use **New** to start a blank scenario of your own, then build it in the left-hand editor: variables, actors, events with probabilities, and decisions with choices. The graph and outcomes update as you type. The **Examples** menu opens ready-made tales: Little Red Riding Hood, The Three Little Pigs, Hansel and Gretel, Cinderella, and a career scenario. They are defined in `src/data/fairyTales.ts` and are a good template for your own.
+Use **New** to start a blank plan, then build it in the left-hand editor:
+
+- **Shocks** (`externalEvents`): the chaos. Each has a probability, a severity, optional tick window (`from`/`until`) and world conditions. The planner can never edit them.
+- **If-Then** (`contingencies`): the agency. Sensors are thresholds over world state (`savings < 500`) or the clock (`tick >= 6`, `date >= 2026-10-31`). A rule either fires as soon as its sensors trip (proactive) or sits armed and **intercepts** the shocks it names, cancelling their effects.
+
+The **Examples** menu has two war-room plans (a night raid and a layoff runway plan) plus the career and fairy-tale scenarios. Scenarios exported before the redesign still import: their events become shocks and their decisions become contingencies.
+
+## The canvas
+
+- **Doctrine map**: the plan itself. Crimson/amber cards are shocks (with `P = 15%` tags), steel-blue blocks are contingencies with their If → Then rule on the face, and cyan pills are sensors. Solid lines are causal flow; pulsing neon dashes are sensor-to-contingency triggers.
+- **Simulated timeline**: every reachable state with its probability, coloured by what got it there.
+- **Layer toggles**: Show All, External Shocks (Vulnerabilities), or Contingencies (If-Then Triggers).
+
+The right-hand **Resilience** tab shows contingency coverage (the share of high-risk shocks that have an If-Then rule intercepting them or watching what they change) and blind spots (dead ends where a high-risk shock hit before any sensor could trip). Shocks without a severity count as high risk from P = 25%.
 
 ## Run it
 
@@ -21,14 +34,11 @@ Pushing to `main` runs the tests and deploys `dist/` to GitHub Pages via `.githu
 
 ## How the engine works
 
-The world is a flat key/value state: variables by id, and actor attributes as `actorId.attribute`.
+The world is a flat key/value state: variables by id, and actor attributes as `actorId.attribute`. Each **tick**, one thing happens, in war-room order:
 
-Each **step**, one thing happens:
-
-1. If a **decision** has its conditions met and hasn't been made yet, it takes the step and branches into every valid choice.
-2. Otherwise every **event** whose preconditions hold (and that hasn't fired, unless repeatable) is eligible. They compete for the step in proportion to their probability. With *quiet steps* on, if the eligible probabilities sum below 1, the remainder becomes a "nothing happens" branch; with it off, they are rescaled to sum to 1.
-
-Because events are gated by state rather than a fixed sequence, "lose job" can happen before or after "relocate", and causality is enforced only where preconditions say so.
+1. **Sensor sweep.** If a proactive contingency's sensors are all tripped and it hasn't fired yet, it takes the tick and branches into each valid action. The actor reacts before the world can move again.
+2. **Shocks.** Otherwise every shock whose conditions and window hold (and that hasn't hit yet, unless repeatable) is eligible, and they compete in proportion to their probability. With *quiet ticks* on, if the eligible probabilities sum below 1, the remainder becomes a "quiet tick" branch; with it off, they are rescaled. If an armed interceptor names the shock that hits, the shock is used up but its mutations are replaced by the interceptor's action.
+3. **Time passes.** If nothing is eligible but a shock is scheduled later or a clock sensor could still trip, the clock advances.
 
 **Exhaustive mode** expands breadth-first, one depth at a time. States that are identical (same variables and same used-up events) at the same depth are merged into one DAG node, so their probabilities add up. A level is fully accumulated before pruning, so the prune threshold is applied to exact merged probabilities. A node cap protects the browser.
 
@@ -36,7 +46,7 @@ Because events are gated by state rather than a fixed sequence, "lose job" can h
 
 **Outcomes** group end states by final world state. Each shows its total probability, how many distinct orderings lead there, and the single most likely route as a story.
 
-**Choice policy.** By default a choice is followed in full (probability "given your choices"), so outcomes from different branches can sum to more than 100%. Set it to *uniform* to treat choices as coin flips.
+**Option policy.** When a contingency has several actions, by default each is followed in full (probability "given the options taken"), so outcomes from different branches can sum to more than 100%. Set it to *uniform* to treat options as coin flips.
 
 ## Security
 
@@ -47,8 +57,8 @@ Because events are gated by state rather than a fixed sequence, "lose job" can h
 ## Layout
 
 ```
-src/types/simulation.ts   schema types (spec section 3 + optional extensions)
-src/engine/               state rules, simulation, outcome analysis, zod schema, tests
-src/components/           editor, React Flow graph, dossier
-src/data/sampleScenario.ts
+src/types/simulation.ts   schema types: ExternalEvent, Contingency, sensors, timeline
+src/engine/               state rules, simulation, resilience analysis, doctrine map, zod schema (+ v1 migration), tests
+src/components/           editor, tactical React Flow nodes, doctrine map, timeline, resilience panel, dossier
+src/data/                 example plans (warRoom.ts) and scenarios
 ```

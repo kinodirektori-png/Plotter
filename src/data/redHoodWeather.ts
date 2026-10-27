@@ -1,4 +1,4 @@
-import type { SimEvent, SimulationConfig } from '../types/simulation';
+import type { ExternalEvent, Severity, SimulationConfig } from '../types/simulation';
 import { event, is, set } from './builders';
 
 // Little Red Riding Hood as a weighted tree: weather and scent decide whether
@@ -12,9 +12,10 @@ interface Branch {
   p: number;
   then: { stage: string } | { ending: string; tone: string; story: string };
   mutations?: ReturnType<typeof set>[];
+  severity?: Severity;
 }
 
-function stage(from: string, branches: Branch[]): SimEvent[] {
+function stage(from: string, branches: Branch[]): ExternalEvent[] {
   return branches.map((b) =>
     event(
       b.id,
@@ -27,12 +28,13 @@ function stage(from: string, branches: Branch[]): SimEvent[] {
           ? [set('stage', b.then.stage)]
           : [set('stage', 'ended'), set('ending', b.then.ending), set('tone', b.then.tone)]),
       ],
-      'story' in b.then ? { description: b.then.story } : {},
+      { ...('story' in b.then ? { description: b.then.story } : {}), ...(b.severity ? { severity: b.severity } : {}) },
     ),
   );
 }
 
 export const redHoodWeather: SimulationConfig = {
+  schemaVersion: 2,
   title: 'Red Riding Hood: weather and nerve',
   maxDepth: 10,
   pruneThreshold: 0,
@@ -51,12 +53,13 @@ export const redHoodWeather: SimulationConfig = {
     { id: 'tone', name: 'Kind of ending', type: 'string', initialValue: 'none yet' },
   ],
   actors: [],
-  decisions: [],
-  events: [
+  contingencies: [],
+  externalEvents: [
     ...stage('departure', [
       {
         id: 'storm',
         title: 'Severe storm',
+        severity: 'low',
         p: 0.3,
         mutations: [set('weather', 'storm')],
         then: {
@@ -66,14 +69,15 @@ export const redHoodWeather: SimulationConfig = {
             "Gale-force winds and a heavy downpour make the forest impassable. Her mother forbids the trip, the treats stay on the kitchen counter, and the wolf never catches a scent.",
         },
       },
-      { id: 'rain', title: 'Steady rain', p: 0.3, mutations: [set('weather', 'rain')], then: { stage: 'rain' } },
-      { id: 'sunny', title: 'Sunny, clear day', p: 0.4, mutations: [set('weather', 'sunny')], then: { stage: 'sunny' } },
+      { id: 'rain', title: 'Steady rain', p: 0.3, severity: 'low', mutations: [set('weather', 'rain')], then: { stage: 'rain' } },
+      { id: 'sunny', title: 'Sunny, clear day', p: 0.4, severity: 'low', mutations: [set('weather', 'sunny')], then: { stage: 'sunny' } },
     ]),
 
     ...stage('rain', [
       {
         id: 'rain_masks_scent',
         title: 'Rain masks her scent',
+        severity: 'low',
         p: 0.7,
         then: {
           ending: 'P2: Safe arrival in the rain',
@@ -88,6 +92,7 @@ export const redHoodWeather: SimulationConfig = {
       {
         id: 'shelter_doubt',
         title: 'Sheltering from the downpour, she has doubts',
+        severity: 'low',
         p: 0.7,
         mutations: [set('red', 'suspicious')],
         then: {
@@ -100,6 +105,7 @@ export const redHoodWeather: SimulationConfig = {
       {
         id: 'rushes_blindly',
         title: 'Rushes blindly to get out of the rain',
+        severity: 'critical',
         p: 0.3,
         mutations: [set('red', 'soaked and hurried')],
         then: {
@@ -115,6 +121,7 @@ export const redHoodWeather: SimulationConfig = {
       {
         id: 'off_trail',
         title: 'The wind carries her scent away',
+        severity: 'low',
         p: 0.3,
         then: {
           ending: 'P3: Safe arrival on a clear day',
@@ -128,6 +135,7 @@ export const redHoodWeather: SimulationConfig = {
       {
         id: 'guarded',
         title: 'She stays guarded',
+        severity: 'low',
         p: 0.3,
         mutations: [set('red', 'cautious')],
         then: {
@@ -143,6 +151,7 @@ export const redHoodWeather: SimulationConfig = {
       {
         id: 'forages',
         title: 'Turns down the shortcut and forages instead',
+        severity: 'low',
         p: 0.3,
         then: {
           ending: 'P6: Timing disrupted',
@@ -157,6 +166,7 @@ export const redHoodWeather: SimulationConfig = {
       {
         id: 'fooled',
         title: 'Fully fooled by the disguise',
+        severity: 'critical',
         p: 0.4,
         then: {
           ending: 'P7: Bedside ambush',
@@ -171,6 +181,7 @@ export const redHoodWeather: SimulationConfig = {
       {
         id: 'hesitates',
         title: 'The wolf hesitates',
+        severity: 'low',
         p: 0.3,
         then: {
           ending: 'P10: Escape window',
@@ -185,6 +196,7 @@ export const redHoodWeather: SimulationConfig = {
       {
         id: 'freezes',
         title: 'Freezes in shock',
+        severity: 'critical',
         p: 0.2,
         then: {
           ending: 'P11: Cornered',
@@ -209,6 +221,7 @@ export const redHoodWeather: SimulationConfig = {
       {
         id: 'hunter',
         title: 'The huntsman hears and bursts in',
+        severity: 'low',
         p: 0.2,
         then: {
           ending: 'P12: Huntsman rescue',

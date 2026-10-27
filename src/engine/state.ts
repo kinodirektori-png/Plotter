@@ -1,4 +1,39 @@
-import type { Precondition, SimulationConfig, StateMutation, Value, WorldState } from '../types/simulation';
+import type { Precondition, SimulationConfig, StateMutation, Timeline, Value, WorldState } from '../types/simulation';
+
+/** Built-in sensors that read the timeline instead of world state. */
+export const CLOCK_KEYS = ['tick', 'date'] as const;
+
+/** Where the timeline is at a given step. `date` exists only when the timeline has a start date. */
+export interface Clock {
+  tick: number;
+  date?: string;
+}
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+export function clockAt(timeline: Timeline | undefined, tick: number): Clock {
+  if (!timeline?.start || !ISO_DATE.test(timeline.start)) return { tick };
+  const d = new Date(`${timeline.start}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return { tick };
+  if (timeline.unit === 'month') d.setUTCMonth(d.getUTCMonth() + tick);
+  else d.setUTCDate(d.getUTCDate() + tick * (timeline.unit === 'week' ? 7 : 1));
+  return { tick, date: d.toISOString().slice(0, 10) };
+}
+
+/** "T+3" or "2026-10-31" for display. */
+export function formatTick(timeline: Timeline | undefined, tick: number): string {
+  const c = clockAt(timeline, tick);
+  if (c.date) return c.date;
+  const unit = timeline && timeline.unit !== 'step' ? ` ${timeline.unit}${tick === 1 ? '' : 's'}` : '';
+  return unit ? `T+${tick}${unit}` : `T+${tick}`;
+}
+
+function readVar(state: WorldState, id: string, clock?: Clock): Value | undefined {
+  if (Object.hasOwn(state, id)) return state[id];
+  if (clock && id === 'tick') return clock.tick;
+  if (clock && id === 'date') return clock.date;
+  return undefined;
+}
 
 /** Variables first, then actor attributes as "<actorId>.<attr>", then initialState overrides. */
 export function buildInitialState(config: SimulationConfig): WorldState {
@@ -24,8 +59,15 @@ function toNumber(v: Value | undefined): number {
   return Number.isFinite(n) ? n : NaN;
 }
 
-export function checkPrecondition(state: WorldState, p: Precondition): boolean {
-  const cur = Object.hasOwn(state, p.variableId) ? state[p.variableId] : undefined;
+export function checkPrecondition(state: WorldState, p: Precondition, clock?: Clock): boolean {
+  const cur = readVar(state, p.variableId, clock);
+  // ISO dates compare as strings, so "date >= 2026-10-31" works.
+  if (typeof cur === 'string' && typeof p.value === 'string' && ISO_DATE.test(cur) && ISO_DATE.test(p.value) && ['>', '<', '>=', '<='].includes(p.operator)) {
+    if (p.operator === '>') return cur > p.value;
+    if (p.operator === '<') return cur < p.value;
+    if (p.operator === '>=') return cur >= p.value;
+    return cur <= p.value;
+  }
   switch (p.operator) {
     case '==':
       return looseEqual(cur, p.value);
@@ -45,8 +87,8 @@ export function checkPrecondition(state: WorldState, p: Precondition): boolean {
   }
 }
 
-export function checkAll(state: WorldState, pre: Precondition[] | undefined): boolean {
-  return (pre ?? []).every((p) => checkPrecondition(state, p));
+export function checkAll(state: WorldState, pre: Precondition[] | undefined, clock?: Clock): boolean {
+  return (pre ?? []).every((p) => checkPrecondition(state, p, clock));
 }
 
 export function applyMutations(state: WorldState, mutations: StateMutation[]): WorldState {
@@ -97,4 +139,25 @@ export function stateKeys(config: SimulationConfig): string[] {
   for (const a of config.actors) for (const k of Object.keys(a.statusAttributes)) keys.add(`${a.id}.${k}`);
   for (const k of Object.keys(config.initialState)) keys.add(k);
   return [...keys];
+}
+
+/** State keys plus the clock sensors, for condition pickers. */
+export function sensorKeys(config: SimulationConfig): string[] {
+  const keys = stateKeys(config);
+  return [...keys, ...CLOCK_KEYS.filter((k) => !keys.includes(k) && (k === 'tick' || config.timeline?.start))];
+}
+
+export function isClockKey(id: string): boolean {
+  return (CLOCK_KEYS as readonly string[]).includes(id);
+}
+
+/**
+ * Could applying this mutation make the condition true? Used to draw causal
+ * links on the doctrine map: a "set" is checked against the threshold, while
+ * increments and toggles are assumed able to cross it.
+ */
+export function couldSatisfy(m: StateMutation, c: Precondition): boolean {
+  if (m.variableId !== c.variableId) return false;
+  if (m.action !== 'set' || m.value === undefined) return true;
+  return checkPrecondition({ [m.variableId]: m.value }, c);
 }

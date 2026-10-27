@@ -38,17 +38,17 @@ export function VarInput({ value, onChange, keys }: { value: string; onChange: (
   );
 }
 
-export function PreconditionList({ items, onChange, keys, label = 'Only if' }: { items: Precondition[]; onChange: (p: Precondition[]) => void; keys: string[]; label?: string }) {
+export function PreconditionList({ items, onChange, keys, label = 'Only if', emptyText = 'Always eligible' }: { items: Precondition[]; onChange: (p: Precondition[]) => void; keys: string[]; label?: string; emptyText?: string }) {
   const set = (i: number, patch: Partial<Precondition>) => onChange(items.map((p, j) => (j === i ? { ...p, ...patch } : p)));
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-slate-500">{label}</span>
+        <span className="text-xs font-medium text-slate-400">{label}</span>
         <Button variant="ghost" className="!px-1 !py-0.5 text-xs" onClick={() => onChange([...items, { variableId: keys[0] ?? '', operator: '==', value: true }])}>
           <Plus size={12} /> condition
         </Button>
       </div>
-      {items.length === 0 && <p className="text-xs italic text-slate-400">Always eligible</p>}
+      {items.length === 0 && <p className="text-xs italic text-slate-500">{emptyText}</p>}
       {items.map((p, i) => (
         <div key={i} className="flex items-center gap-1">
           <VarInput value={p.variableId} keys={keys} onChange={(v) => set(i, { variableId: v })} />
@@ -69,17 +69,17 @@ export function PreconditionList({ items, onChange, keys, label = 'Only if' }: {
   );
 }
 
-export function MutationList({ items, onChange, keys }: { items: StateMutation[]; onChange: (m: StateMutation[]) => void; keys: string[] }) {
+export function MutationList({ items, onChange, keys, label = 'Then' }: { items: StateMutation[]; onChange: (m: StateMutation[]) => void; keys: string[]; label?: string }) {
   const set = (i: number, patch: Partial<StateMutation>) => onChange(items.map((m, j) => (j === i ? { ...m, ...patch } : m)));
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-slate-500">Then</span>
+        <span className="text-xs font-medium text-slate-400">{label}</span>
         <Button variant="ghost" className="!px-1 !py-0.5 text-xs" onClick={() => onChange([...items, { variableId: keys[0] ?? '', action: 'set', value: true }])}>
           <Plus size={12} /> change
         </Button>
       </div>
-      {items.length === 0 && <p className="text-xs italic text-slate-400">Changes nothing</p>}
+      {items.length === 0 && <p className="text-xs italic text-slate-500">Changes nothing</p>}
       {items.map((m, i) => (
         <div key={i} className="flex items-center gap-1">
           <VarInput value={m.variableId} keys={keys} onChange={(v) => set(i, { variableId: v })} />
@@ -90,7 +90,7 @@ export function MutationList({ items, onChange, keys }: { items: StateMutation[]
           </Select>
           <div className="w-20 shrink-0">
             {m.action === 'toggle' ? (
-              <span className="block px-2 text-xs text-slate-400">flip</span>
+              <span className="block px-2 text-xs text-slate-500">flip</span>
             ) : (
               <ValueInput value={m.value} placeholder={m.action === 'set' ? 'value' : '1'} onChange={(v) => set(i, { value: v })} />
             )}
