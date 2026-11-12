@@ -5,6 +5,7 @@ import { Editor } from './components/Editor';
 import { DoctrineMap } from './components/DoctrineMap';
 import { GraphView } from './components/GraphView';
 import { LayerToolbar, type CanvasView } from './components/LayerToolbar';
+import { PlansView } from './components/PlansView';
 import { Button, Select } from './components/ui';
 import { blankScenario, examples, matchesExample } from './data/library';
 import { bestPath, computeOutcomes } from './engine/analysis';
@@ -52,7 +53,7 @@ export default function App() {
   const [editorKey, setEditorKey] = useState(0); // remounts the editor so it opens on the right tab
   const [importError, setImportError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [view, setView] = useState<CanvasView>('doctrine');
+  const [view, setView] = useState<CanvasView>('plans');
   const [layer, setLayer] = useState<Layer>('all');
   const fileRef = useRef<HTMLInputElement>(null);
   const deferred = useDeferredValue(config);
@@ -231,6 +232,7 @@ export default function App() {
           <div className="flex h-full flex-col">
             <LayerToolbar view={view} onView={setView} layer={layer} onLayer={setLayer} />
             <div className="relative min-h-0 flex-1">
+              {view === 'plans' && <PlansView config={sim.config} result={sim.result} />}
               {view === 'doctrine' && <DoctrineMap key={`${editorKey}-${layer}`} config={sim.config} layer={layer} />}
               {view === 'timeline' && (
                 <GraphView key={editorKey} config={sim.config} layer={layer} result={sim.result} minP={minP} selectedId={selected} highlight={highlight} highlightEdges={highlightEdges}

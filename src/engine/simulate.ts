@@ -1,4 +1,11 @@
 import type { Contingency, SimEdge, SimNode, SimResult, SimulationConfig, TickWindow, WorldState } from '../types/simulation';
+
+/**
+ * A fixed plan: contingency id -> the action the actor commits to. When the
+ * planned action is not available in a state (its `requires` fail), the rule
+ * falls back to whatever actions are valid there.
+ */
+export type Plan = Record<string, string>;
 import { applyMutations, buildInitialState, checkAll, clockAt, isClockKey, stateSignature } from './state';
 
 export const DEFAULT_MAX_NODES = 4000;
@@ -53,12 +60,18 @@ export function getMoves(
   config: SimulationConfig,
   node: Pick<SimNode, 'state' | 'fired' | 'depth'>,
   sampling = false,
+  plan?: Plan,
 ): { moves: Move[]; contingencyId?: string } {
   const { state, fired, depth } = node;
   const clock = clockAt(config.timeline, depth);
   const firedSet = new Set(fired);
   const uniform = sampling || config.choicePolicy === 'uniform';
-  const validActions = (c: Contingency) => c.actions.filter((a) => checkAll(state, a.requires, clock));
+  const validActions = (c: Contingency) => {
+    const valid = c.actions.filter((a) => checkAll(state, a.requires, clock));
+    const planned = plan?.[c.id];
+    const pick = planned ? valid.filter((a) => a.id === planned) : [];
+    return pick.length ? pick : valid;
+  };
 
   for (const c of config.contingencies) {
     if (c.intercepts?.length || contingencyUsed(fired, c.id) || !checkAll(state, c.sensors, clock)) continue;
@@ -120,8 +133,8 @@ function newNode(id: string, depth: number, state: WorldState, fired: string[]):
   return { id, depth, state, fired, probability: 0, pathCount: 0, bestPathP: 0, terminal: false };
 }
 
-export function simulate(config: SimulationConfig): SimResult {
-  return config.mode === 'montecarlo' ? simulateMonteCarlo(config) : simulateExhaustive(config);
+export function simulate(config: SimulationConfig, plan?: Plan): SimResult {
+  return config.mode === 'montecarlo' ? simulateMonteCarlo(config, plan) : simulateExhaustive(config, plan);
 }
 
 /**
@@ -130,7 +143,7 @@ export function simulate(config: SimulationConfig): SimResult {
  * node whose probability is the sum of both routes. Because a level is fully
  * accumulated before it is expanded, pruning compares exact merged mass.
  */
-export function simulateExhaustive(config: SimulationConfig): SimResult {
+export function simulateExhaustive(config: SimulationConfig, plan?: Plan): SimResult {
   const t0 = performance.now();
   const maxNodes = config.maxNodes ?? DEFAULT_MAX_NODES;
   const nodes: Record<string, SimNode> = {};
@@ -158,7 +171,7 @@ export function simulateExhaustive(config: SimulationConfig): SimResult {
         node.terminalReason = 'maxDepth';
         continue;
       }
-      const { moves, contingencyId } = getMoves(config, node);
+      const { moves, contingencyId } = getMoves(config, node, false, plan);
       if (!moves.length) {
         node.terminal = true;
         node.terminalReason = 'noMoves';
@@ -237,7 +250,7 @@ export function mulberry32(seed: number): () => number {
  * Samples `runs` paths and folds them into the same depth-keyed DAG. Node and
  * edge probabilities are observed frequencies. Contingency actions are sampled uniformly.
  */
-export function simulateMonteCarlo(config: SimulationConfig): SimResult {
+export function simulateMonteCarlo(config: SimulationConfig, plan?: Plan): SimResult {
   const t0 = performance.now();
   const runs = config.runs ?? 2000;
   const maxNodes = config.maxNodes ?? DEFAULT_MAX_NODES;
@@ -264,7 +277,7 @@ export function simulateMonteCarlo(config: SimulationConfig): SimResult {
       }
       let m = movesCache.get(cur.id);
       if (!m) {
-        m = getMoves(config, cur, true);
+        m = getMoves(config, cur, true, plan);
         movesCache.set(cur.id, m);
       }
       if (!m.moves.length) {

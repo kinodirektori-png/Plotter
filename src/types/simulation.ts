@@ -116,6 +116,9 @@ export interface SimulationConfig {
   choicePolicy?: ChoicePolicy;
   includeQuietSteps?: boolean; // add a "quiet tick" branch when shock probabilities sum < 1
   maxNodes?: number; // safety cap so the browser never locks up
+  // State keys that describe where a story ends up ("job", "family", ...).
+  // The outcomes view groups end states by these. Unset: every non-numeric key that varies.
+  outcomeVariables?: string[];
 }
 
 // ---------- Engine output ----------
