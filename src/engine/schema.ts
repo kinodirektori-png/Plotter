@@ -54,6 +54,7 @@ const externalEvent = z.object({
   mutations,
   severity: z.enum(['low', 'medium', 'high', 'critical']).optional(),
   repeatable: z.boolean().optional(),
+  minor: z.boolean().optional(),
 });
 
 const action = z.object({
