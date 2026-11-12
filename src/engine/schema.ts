@@ -86,6 +86,7 @@ const runSettings = {
   choicePolicy: z.enum(['conditional', 'uniform']).optional(),
   includeQuietSteps: z.boolean().optional(),
   maxNodes: z.number().int().min(10).max(50_000).optional(),
+  outcomeVariables: z.array(safeKey).max(50).optional(),
 };
 
 export const simulationConfigSchema = z

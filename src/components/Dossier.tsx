@@ -1,7 +1,7 @@
 import { BookOpen, Cpu, Flag, ListTree, Radar, Route, ShieldCheck, Target } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { bestPath, computeResilience, formatP, type Outcome } from '../engine/analysis';
-import { diffState } from '../engine/state';
+import { diffState, formatTick } from '../engine/state';
 import type { SimEdge, SimResult, SimulationConfig, WorldState } from '../types/simulation';
 import { ResiliencePanel } from './Resilience';
 import { Card, Tabs, formatValue } from './ui';
@@ -41,7 +41,8 @@ function stepOdds(e: SimEdge): string {
 }
 
 export function Story({ config, result, nodeId }: { config: SimulationConfig; result: SimResult; nodeId: string }) {
-  const path = bestPath(result, nodeId);
+  // Quiet months carry no story, so they are left out.
+  const path = bestPath(result, nodeId).filter((e) => e.kind !== 'quiet');
   if (!path.length) return <p className="text-xs italic text-slate-500">This is the starting state.</p>;
   return (
     <ol className="space-y-1.5">
@@ -57,6 +58,7 @@ export function Story({ config, result, nodeId }: { config: SimulationConfig; re
                 {e.kind === 'contingency' && <Cpu size={11} className="mr-1 inline text-sky-400" />}
                 {e.kind === 'intercept' && <ShieldCheck size={11} className="mr-1 inline text-sky-400" />}
                 {e.kind === 'shock' && <Radar size={11} className="mr-1 inline text-rose-400" />}
+                <span className="mr-1 font-mono text-[10px] font-normal text-slate-500">{formatTick(config.timeline, result.nodes[e.target].depth)}</span>
                 {e.label} <span className="font-normal text-slate-500">({stepOdds(e)})</span>
               </div>
               {desc && <div className="text-slate-400">{desc}</div>}

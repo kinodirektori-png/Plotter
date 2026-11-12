@@ -1,8 +1,8 @@
-import { Cpu, GitBranch, Layers, Map as MapIcon, Radar } from 'lucide-react';
+import { Cpu, GitBranch, Layers, ListTree, Map as MapIcon, Radar } from 'lucide-react';
 import type { ReactNode } from 'react';
 import type { Layer } from '../engine/doctrine';
 
-export type CanvasView = 'doctrine' | 'timeline';
+export type CanvasView = 'doctrine' | 'timeline' | 'plans';
 
 function Segment<T extends string>({ value, onChange, options, label }: { value: T; onChange: (v: T) => void; options: { id: T; label: string; icon: ReactNode; tone: string }[]; label: string }) {
   return (
@@ -34,8 +34,10 @@ export function LayerToolbar({ view, onView, layer, onLayer }: { view: CanvasVie
         options={[
           { id: 'doctrine', label: 'Doctrine map', icon: <MapIcon size={13} />, tone: 'bg-slate-700 text-slate-100' },
           { id: 'timeline', label: 'Simulated timeline', icon: <GitBranch size={13} />, tone: 'bg-slate-700 text-slate-100' },
+          { id: 'plans', label: 'Outcomes by plan', icon: <ListTree size={13} />, tone: 'bg-slate-700 text-slate-100' },
         ]}
       />
+      {view !== 'plans' && (
       <Segment
         label="Tactical layers"
         value={layer}
@@ -46,7 +48,8 @@ export function LayerToolbar({ view, onView, layer, onLayer }: { view: CanvasVie
           { id: 'contingencies', label: 'Contingencies (If-Then Triggers)', icon: <Cpu size={13} />, tone: 'bg-sky-500/20 text-sky-200 ring-1 ring-sky-500/50' },
         ]}
       />
-      <div className="ml-auto hidden items-center gap-3 text-[10px] text-slate-500 xl:flex">
+      )}
+      <div className={`ml-auto hidden items-center gap-3 text-[10px] text-slate-500 ${view === 'plans' ? '' : 'xl:flex'}`}>
         <span className="flex items-center gap-1">
           <svg width="22" height="6"><line x1="0" y1="3" x2="22" y2="3" stroke="#fb7185" strokeWidth="2" /></svg> causal flow
         </span>

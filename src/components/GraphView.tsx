@@ -56,9 +56,31 @@ function describeArrival(config: SimulationConfig, e: SimEdge): { heading: strin
 export function GraphView({ config, layer, result, minP, selectedId, highlight, highlightEdges, onSelect }: Props) {
   const layout = useMemo(() => {
     const root = result.nodes[result.rootId];
-    const visible = Object.values(result.nodes).filter((n) => n.id === result.rootId || n.probability >= minP);
+    // A quiet step only moves the clock, so a state reached by nothing but
+    // "time passes" from one parent is drawn as that parent.
+    const incoming = new Map<string, SimEdge[]>();
+    for (const e of result.edges) incoming.set(e.target, [...(incoming.get(e.target) ?? []), e]);
+    const reps = new Map<string, string>();
+    const repOf = (id: string): string => {
+      const known = reps.get(id);
+      if (known) return known;
+      const ins = incoming.get(id) ?? [];
+      const r = ins.length && ins.every((e) => e.kind === 'quiet' && e.source === ins[0].source) ? repOf(ins[0].source) : id;
+      reps.set(id, r);
+      return r;
+    };
+    const visible = Object.values(result.nodes).filter((n) => repOf(n.id) === n.id && (n.id === result.rootId || n.probability >= minP));
     const ids = new Set(visible.map((n) => n.id));
-    const edges = result.edges.filter((e) => ids.has(e.source) && ids.has(e.target));
+    const merged = new Map<string, SimEdge>();
+    for (const e of result.edges) {
+      if (e.kind === 'quiet' && repOf(e.target) !== e.target) continue;
+      const source = repOf(e.source);
+      if (!ids.has(source) || !ids.has(e.target)) continue;
+      const key = `${source}>${e.target}|${e.refId}`;
+      const had = merged.get(key);
+      merged.set(key, had ? { ...had, flow: had.flow + e.flow } : { ...e, source });
+    }
+    const edges = [...merged.values()];
     const g = new dagre.graphlib.Graph();
     g.setGraph({ rankdir: 'TB', nodesep: 24, ranksep: 70 });
     g.setDefaultEdgeLabel(() => ({}));
