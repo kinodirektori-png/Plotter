@@ -64,6 +64,9 @@ export interface ExternalEvent {
   mutations: StateMutation[];
   severity?: Severity; // unset: treated as high risk when probability >= HIGH_RISK_P
   repeatable?: boolean;
+  // Background detail: shown inside a turn of the story instead of splitting it.
+  // Unset: low and medium severity events that no rule or outcome reads.
+  minor?: boolean;
 }
 
 export interface ContingencyAction {

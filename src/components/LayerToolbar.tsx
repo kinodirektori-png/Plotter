@@ -1,8 +1,10 @@
-import { Cpu, GitBranch, Layers, ListTree, Map as MapIcon, Radar } from 'lucide-react';
+import { Clapperboard, Cpu, GitBranch, Layers, ListTree, Map as MapIcon, Radar, Route } from 'lucide-react';
 import type { ReactNode } from 'react';
 import type { Layer } from '../engine/doctrine';
 
-export type CanvasView = 'doctrine' | 'timeline' | 'plans';
+export type CanvasView = 'paths' | 'play' | 'plans' | 'doctrine' | 'timeline';
+
+const STORY_VIEWS: CanvasView[] = ['paths', 'play', 'plans'];
 
 function Segment<T extends string>({ value, onChange, options, label }: { value: T; onChange: (v: T) => void; options: { id: T; label: string; icon: ReactNode; tone: string }[]; label: string }) {
   return (
@@ -32,12 +34,14 @@ export function LayerToolbar({ view, onView, layer, onLayer }: { view: CanvasVie
         value={view}
         onChange={onView}
         options={[
+          { id: 'paths', label: 'Paths', icon: <Route size={13} />, tone: 'bg-slate-700 text-slate-100' },
+          { id: 'play', label: 'Play it out', icon: <Clapperboard size={13} />, tone: 'bg-fuchsia-500/20 text-fuchsia-100 ring-1 ring-fuchsia-500/50' },
+          { id: 'plans', label: 'Outcomes by plan', icon: <ListTree size={13} />, tone: 'bg-slate-700 text-slate-100' },
           { id: 'doctrine', label: 'Doctrine map', icon: <MapIcon size={13} />, tone: 'bg-slate-700 text-slate-100' },
           { id: 'timeline', label: 'Simulated timeline', icon: <GitBranch size={13} />, tone: 'bg-slate-700 text-slate-100' },
-          { id: 'plans', label: 'Outcomes by plan', icon: <ListTree size={13} />, tone: 'bg-slate-700 text-slate-100' },
         ]}
       />
-      {view !== 'plans' && (
+      {!STORY_VIEWS.includes(view) && (
       <Segment
         label="Tactical layers"
         value={layer}
@@ -49,7 +53,7 @@ export function LayerToolbar({ view, onView, layer, onLayer }: { view: CanvasVie
         ]}
       />
       )}
-      <div className={`ml-auto hidden items-center gap-3 text-[10px] text-slate-500 ${view === 'plans' ? '' : 'xl:flex'}`}>
+      <div className={`ml-auto hidden items-center gap-3 text-[10px] text-slate-500 ${STORY_VIEWS.includes(view) ? '' : 'xl:flex'}`}>
         <span className="flex items-center gap-1">
           <svg width="22" height="6"><line x1="0" y1="3" x2="22" y2="3" stroke="#fb7185" strokeWidth="2" /></svg> causal flow
         </span>
